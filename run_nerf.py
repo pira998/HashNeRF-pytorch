@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 from tqdm import tqdm, trange
 import pickle
+import wandb
 
 import matplotlib.pyplot as plt
 
@@ -241,6 +242,7 @@ def create_nerf(args):
                           input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs).to(device)
         grad_vars += list(model_fine.parameters())
 
+
     network_query_fn = lambda inputs, viewdirs, network_fn : run_network(inputs, viewdirs, network_fn,
                                                                 embed_fn=embed_fn,
                                                                 embeddirs_fn=embeddirs_fn,
@@ -312,7 +314,7 @@ def create_nerf(args):
     render_kwargs_test['perturb'] = False
     render_kwargs_test['raw_noise_std'] = 0.
 
-    return render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer
+    return render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer, model, model_fine
 
 
 def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=False):
@@ -730,9 +732,9 @@ def train():
         f = os.path.join(basedir, expname, 'config.txt')
         with open(f, 'w') as file:
             file.write(open(args.config, 'r').read())
-
+    wandb.config.update(args) 
     # Create nerf model
-    render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer = create_nerf(args)
+    render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer, model, model_fine = create_nerf(args)
     global_step = start
 
     bds_dict = {
@@ -959,6 +961,9 @@ def train():
                 "psnr": psnr_list,
                 "time": time_list
             }
+            wandb.log({'metrics/loss':loss.item(), 'metrics/PSNR': psnr.item(), 'iter': i, 'time_metrics/time_taken':t})
+            wandb.watch(model)
+            wandb.watch(model_fine)
             with open(os.path.join(basedir, expname, "loss_vs_time.pkl"), "wb") as fp:
                 pickle.dump(loss_psnr_time, fp)
 
@@ -966,6 +971,7 @@ def train():
 
 
 if __name__=='__main__':
+    wandb.init(project="hash-nerf", entity="praveen998")
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
     train()
